@@ -32,31 +32,36 @@ compress(uint32_t out[static 8], const uint32_t m[static 16], const uint32_t h[s
 	};
 	unsigned i;
 
-	for (i = 0; i < 7; ++i) {
-#define G(j, a, b, c, d, s) \
-		a = a + b + m[s[j * 2]]; \
-		d = d ^ a; \
-		d = d >> 16 | d << 16; \
-		c = c + d; \
-		b = b ^ c; \
-		b = b >> 12 | b << 20; \
-		a = a + b + m[s[j * 2 + 1]]; \
-		d = d ^ a; \
-		d = d >> 8 | d << 24; \
-		c = c + d; \
-		b = b ^ c; \
-		b = b >> 7 | b << 25;
+#define G(i, j, a, b, c, d) \
+	a = a + b + m[s[i][j * 2]]; \
+	d = d ^ a; \
+	d = d >> 16 | d << 16; \
+	c = c + d; \
+	b = b ^ c; \
+	b = b >> 12 | b << 20; \
+	a = a + b + m[s[i][j * 2 + 1]]; \
+	d = d ^ a; \
+	d = d >> 8 | d << 24; \
+	c = c + d; \
+	b = b ^ c; \
+	b = b >> 7 | b << 25;
 
-		G(0, v[0], v[4], v[8],  v[12], s[i])
-		G(1, v[1], v[5], v[9],  v[13], s[i])
-		G(2, v[2], v[6], v[10], v[14], s[i])
-		G(3, v[3], v[7], v[11], v[15], s[i])
-		G(4, v[0], v[5], v[10], v[15], s[i])
-		G(5, v[1], v[6], v[11], v[12], s[i])
-		G(6, v[2], v[7], v[8],  v[13], s[i])
-		G(7, v[3], v[4], v[9],  v[14], s[i])
+#define ROUND(i) \
+	G(i, 0, v[0], v[4], v[8],  v[12]) \
+	G(i, 1, v[1], v[5], v[9],  v[13]) \
+	G(i, 2, v[2], v[6], v[10], v[14]) \
+	G(i, 3, v[3], v[7], v[11], v[15]) \
+	G(i, 4, v[0], v[5], v[10], v[15]) \
+	G(i, 5, v[1], v[6], v[11], v[12]) \
+	G(i, 6, v[2], v[7], v[8],  v[13]) \
+	G(i, 7, v[3], v[4], v[9],  v[14])
+
+	ROUND(0) ROUND(1) ROUND(2) ROUND(3)
+	ROUND(4) ROUND(5) ROUND(6)
+
 #undef G
-	}
+#undef ROUND
+
 	for (i = 0; i < 8; ++i)
 		out[i] = v[i] ^ v[8 + i];
 }
