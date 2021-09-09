@@ -85,7 +85,7 @@ void
 blake3_update(struct blake3 *ctx, const void *buf, size_t len)
 {
 	const unsigned char *pos = buf;
-	uint32_t m[16], flags, *h = ctx->cv;
+	uint32_t m[16], flags, *cv = ctx->cv;
 	uint64_t t;
 
 	while (len > 64 - ctx->bytes) {
@@ -99,20 +99,20 @@ blake3_update(struct blake3 *ctx, const void *buf, size_t len)
 		case 15: flags |= CHUNK_END;   break;
 		}
 		load(m, ctx->input);
-		compress(h, m, h, ctx->chunk, 64, flags);
+		compress(cv, m, cv, ctx->chunk, 64, flags);
 		if (++ctx->block == 16) {
 			ctx->block = 0;
 			for (t = ++ctx->chunk; (t & 1) == 0; t >>= 1) {
-				h -= 8;
-				compress(h, h, iv, 0, 64, PARENT);
+				cv -= 8;
+				compress(cv, cv, iv, 0, 64, PARENT);
 			}
-			h += 8;
-			memcpy(h, iv, sizeof(iv));
+			cv += 8;
+			memcpy(cv, iv, sizeof(iv));
 		}
 	}
 	memcpy(ctx->input + ctx->bytes, pos, len);
 	ctx->bytes += len;
-	ctx->cv = h;
+	ctx->cv = cv;
 }
 
 void
