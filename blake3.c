@@ -67,13 +67,38 @@ compress(uint32_t out[static 8], const uint32_t m[static 16], const uint32_t h[s
 }
 
 static void
-load(uint32_t d[static 16], unsigned char s[static 64]) {
+load(uint32_t d[static 16], const unsigned char s[static 64]) {
 	uint32_t *end;
 
 	for (end = d + 16; d < end; ++d, s += 4) {
 		*d = (uint32_t)s[0]       | (uint32_t)s[1] <<  8
 		   | (uint32_t)s[2] << 16 | (uint32_t)s[3] << 24;
 	}
+}
+
+static void
+block(struct blake3 *ctx, const unsigned char *buf)
+{
+	uint32_t m[16], flags, *cv = ctx->cv;
+	uint64_t t;
+
+	flags = 0;
+	switch (ctx->block) {
+	case 0:  flags |= CHUNK_START; break;
+	case 15: flags |= CHUNK_END;   break;
+	}
+	load(m, buf);
+	compress(cv, m, cv, ctx->chunk, 64, flags);
+	if (++ctx->block == 16) {
+		ctx->block = 0;
+		for (t = ++ctx->chunk; (t & 1) == 0; t >>= 1) {
+			cv -= 8;
+			compress(cv, cv, iv, 0, 64, PARENT);
+		}
+		cv += 8;
+		memcpy(cv, iv, sizeof(iv));
+	}
+	ctx->cv = cv;
 }
 
 void
@@ -90,34 +115,23 @@ void
 blake3_update(struct blake3 *ctx, const void *buf, size_t len)
 {
 	const unsigned char *pos = buf;
-	uint32_t m[16], flags, *cv = ctx->cv;
-	uint64_t t;
+	size_t n;
 
-	while (len > 64 - ctx->bytes) {
-		memcpy(ctx->input + ctx->bytes, pos, 64 - ctx->bytes);
-		pos += 64 - ctx->bytes;
-		len -= 64 - ctx->bytes;
-		ctx->bytes = 0;
-		flags = 0;
-		switch (ctx->block) {
-		case 0:  flags |= CHUNK_START; break;
-		case 15: flags |= CHUNK_END;   break;
-		}
-		load(m, ctx->input);
-		compress(cv, m, cv, ctx->chunk, 64, flags);
-		if (++ctx->block == 16) {
-			ctx->block = 0;
-			for (t = ++ctx->chunk; (t & 1) == 0; t >>= 1) {
-				cv -= 8;
-				compress(cv, cv, iv, 0, 64, PARENT);
-			}
-			cv += 8;
-			memcpy(cv, iv, sizeof(iv));
-		}
+	if (ctx->bytes) {
+		n = 64 - ctx->bytes;
+		if (len < n)
+			n = len;
+		memcpy(ctx->input + ctx->bytes, pos, n);
+		pos += n, len -= n;
+		ctx->bytes += n;
+		if (!len)
+			return;
+		block(ctx, ctx->input);
 	}
-	memcpy(ctx->input + ctx->bytes, pos, len);
-	ctx->bytes += len;
-	ctx->cv = cv;
+	for (; len > 64; pos += 64, len -= 64)
+		block(ctx, pos);
+	ctx->bytes = len;
+	memcpy(ctx->input, pos, len);
 }
 
 void
