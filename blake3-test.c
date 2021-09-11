@@ -61,7 +61,7 @@ main(void)
 		for (; len > sizeof(input); len -= sizeof(input))
 			blake3_update(&ctx, input, sizeof(input));
 		blake3_update(&ctx, input, len);
-		blake3_out(&ctx, hash);
+		blake3_out(&ctx, hash, 32);
 		for (j = 0; j < sizeof(hash); ++j) {
 			hash_str[j * 2] = hex[hash[j] >> 4];
 			hash_str[j * 2 + 1] = hex[hash[j] & 0xf];

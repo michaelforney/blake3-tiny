@@ -13,6 +13,6 @@ struct blake3 {
 
 void blake3_init(struct blake3 *);
 void blake3_update(struct blake3 *, const void *, size_t);
-void blake3_out(struct blake3 *, unsigned char *);
+void blake3_out(struct blake3 *, unsigned char *, size_t);
 
 #endif

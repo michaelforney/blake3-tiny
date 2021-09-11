@@ -6,17 +6,18 @@
 #include "blake3.h"
 
 static const char *argv0;
-static unsigned char out[32];
+static unsigned char *out;
+static size_t outlen = 32;
 
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-bct] [file...]\n", argv0);
+	fprintf(stderr, "usage: %s [-bct] [-l length] [file...]\n", argv0);
 	exit(1);
 }
 
 static int
-sumfile(const char *name, FILE *file, unsigned char *out)
+sumfile(const char *name, FILE *file, unsigned char *out, size_t outlen)
 {
 	char buf[16384];
 	struct blake3 ctx;
@@ -33,7 +34,7 @@ sumfile(const char *name, FILE *file, unsigned char *out)
 		perror(NULL);
 		return 1;
 	}
-	blake3_out(&ctx, out);
+	blake3_out(&ctx, out, outlen);
 	return 0;
 }
 
@@ -42,9 +43,9 @@ sum(const char *name, FILE *file)
 {
 	size_t i;
 
-	if (sumfile(name, file, out) != 0)
+	if (sumfile(name, file, out, outlen) != 0)
 		return 1;
-	for (i = 0; i < 32; i++)
+	for (i = 0; i < outlen; i++)
 		printf("%02x", out[i]);
 	printf("  %s\n", name);
 	return 0;
@@ -63,7 +64,7 @@ hexval(int c)
 }
 
 static int
-checkfile(const char *name, const char *mode, const char *str, unsigned char *out)
+checkfile(const char *name, const char *mode, const char *str, unsigned char *out, size_t len)
 {
 	FILE *file;
 	int c1, c2;
@@ -75,8 +76,8 @@ checkfile(const char *name, const char *mode, const char *str, unsigned char *ou
 		perror(NULL);
 		return 1;
 	}
-	sumfile(name, file, out);
-	for (i = 0; i < sizeof(out); i++) {
+	sumfile(name, file, out, len);
+	for (i = 0; i < len; i++) {
 		c1 = hexval(str[i * 2]);
 		c2 = hexval(str[i * 2 + 1]);
 		if (c1 == -1 || c2 == -2) {
@@ -97,6 +98,7 @@ check(const char *name, FILE *file)
 {
 	const char *mode;
 	char buf[8192], *pos, *end;
+	size_t len;
 	int ret = 0, skip = 0;
 
 	buf[sizeof(buf) - 2] = 0;
@@ -119,12 +121,22 @@ check(const char *name, FILE *file)
 			continue;
 		}
 		mode = pos[1] == ' ' ? "r" : "rb";
+		len = (pos - buf) / 2;
+		if (len > outlen) {
+			outlen = len;
+			free(out);
+			out = malloc(len);
+			if (!out) {
+				perror(argv0);
+				return 1;
+			}
+		}
 		*pos = '\0';
 		pos += 2;
 		end = strchr(pos, '\n');
 		if (end)
 			*end = '\0';
-		ret |= checkfile(pos, mode, buf, out);
+		ret |= checkfile(pos, mode, buf, out, len);
 	}
 	if (ferror(file)) {
 		fprintf(stderr, "%s: read %s: ", argv0, name);
@@ -139,6 +151,7 @@ main(int argc, char *argv[])
 {
 	int (*func)(const char *, FILE *) = sum;
 	FILE *file;
+	char *end;
 	const char *name, *mode = NULL;
 	int ret = 0;
 
@@ -150,12 +163,23 @@ main(int argc, char *argv[])
 	case 'c':
 		func = check;
 		break;
+	case 'l':
+		outlen = strtoul(EARGF(usage()), &end, 10);
+		if (*end)
+			usage();
+		break;
 	case 't':
 		mode = "r";
 		break;
 	default:
 		usage();
 	} ARGEND
+
+	out = malloc(outlen);
+	if (!out) {
+		perror(NULL);
+		return 1;
+	}
 
 	if (argc == 0) {
 		if (!mode || strcmp(mode, "r") == 0 || freopen(NULL, mode, stdin)) {

@@ -13,7 +13,7 @@ static const uint32_t iv[] = {
 };
 
 static void
-compress(uint32_t out[static 8], const uint32_t m[static 16], const uint32_t h[static 8], uint64_t t, uint32_t b, uint32_t d)
+compress(uint32_t *out, const uint32_t m[static 16], const uint32_t h[static 8], uint64_t t, uint32_t b, uint32_t d)
 {
 	static const unsigned char s[][16] = {
 		{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
@@ -62,8 +62,12 @@ compress(uint32_t out[static 8], const uint32_t m[static 16], const uint32_t h[s
 #undef G
 #undef ROUND
 
+	if (d & ROOT) {
+		for (i = 8; i < 16; ++i)
+			out[i] = v[i] ^ h[i - 8];
+	}
 	for (i = 0; i < 8; ++i)
-		out[i] = v[i] ^ v[8 + i];
+		out[i] = v[i] ^ v[i + 8];
 }
 
 static void
@@ -135,30 +139,35 @@ blake3_update(struct blake3 *ctx, const void *buf, size_t len)
 }
 
 void
-blake3_out(struct blake3 *ctx, unsigned char *restrict out)
+blake3_out(struct blake3 *ctx, unsigned char *restrict out, size_t len)
 {
-	uint32_t flags, *cv, *cv_end, m[16];
+	uint32_t flags, b, x, *in, *cv, m[16], root[16];
+	size_t i;
 
 	cv = ctx->cv;
 	memset(ctx->input + ctx->bytes, 0, 64 - ctx->bytes);
+	load(m, ctx->input);
 	flags = CHUNK_END;
 	if (ctx->block == 0)
 		flags |= CHUNK_START;
-	if (cv == ctx->cv_buf)
-		flags |= ROOT;
-	load(m, ctx->input);
-	compress(cv, m, cv, ctx->chunk, ctx->bytes, flags);
-	while (cv != ctx->cv_buf) {
-		cv -= 8;
+	if (cv == ctx->cv_buf) {
+		b = ctx->bytes;
+		in = m;
+	} else {
+		compress(cv, m, cv, ctx->chunk, ctx->bytes, flags);
 		flags = PARENT;
-		if (cv == ctx->cv_buf)
-			flags |= ROOT;
-		compress(cv, cv, iv, 0, 64, flags);
+		while ((cv -= 8) != ctx->cv_buf)
+			compress(cv, cv, iv, 0, 64, flags);
+		b = 64;
+		in = cv;
+		cv = (uint32_t *)iv;
 	}
-	for (cv_end = cv + 8; cv < cv_end; ++cv, out += 4) {
-		out[0] = *cv & 0xff;
-		out[1] = *cv >> 8 & 0xff;
-		out[2] = *cv >> 16 & 0xff;
-		out[3] = *cv >> 24 & 0xff;
+	flags |= ROOT;
+	for (i = 0; i < len; ++i, ++out, x >>= 8) {
+		if ((i & 63) == 0)
+			compress(root, in, cv, i >> 6, b, flags);
+		if ((i & 3) == 0)
+			x = root[i >> 2 & 15];
+		*out = x & 0xff;
 	}
 }
